@@ -1,0 +1,409 @@
+{
+  "info": {
+    "name": "cocos-challenge",
+    "description": "Colección de la API del challenge. Define la variable `baseUrl` si el servidor no corre en el puerto 3000.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:3000"
+    }
+  ],
+  "item": [
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "Health check",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/health",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "health"
+              ]
+            },
+            "description": "Devuelve el estado del servidor y su uptime en segundos."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Instruments",
+      "item": [
+        {
+          "name": "Buscar por ticker",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/instruments?q=ggal",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "instruments"
+              ],
+              "query": [
+                {
+                  "key": "q",
+                  "value": "ggal"
+                }
+              ]
+            },
+            "description": "Busca instrumentos cuyo ticker o nombre contenga el texto, sin distinguir mayúsculas. Máximo 50 resultados."
+          }
+        },
+        {
+          "name": "Buscar por nombre",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/instruments?q=galicia",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "instruments"
+              ],
+              "query": [
+                {
+                  "key": "q",
+                  "value": "galicia"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Buscar sin q (400)",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/instruments",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "instruments"
+              ]
+            },
+            "description": "Falla con 400 porque `q` es obligatorio."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Portfolio",
+      "item": [
+        {
+          "name": "Portfolio del usuario 1",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/portfolio/1",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "portfolio",
+                "1"
+              ]
+            },
+            "description": "Valor total de la cuenta, pesos disponibles y posiciones (cantidad, valor de mercado y rendimiento total %). Solo cuentan las órdenes FILLED; el rendimiento usa costo promedio móvil."
+          }
+        },
+        {
+          "name": "Usuario inexistente (404)",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/portfolio/999",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "portfolio",
+                "999"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Id inválido (400)",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/portfolio/abc",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "portfolio",
+                "abc"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Orders",
+      "item": [
+        {
+          "name": "Agregar saldo (CASH_IN)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": 1,\n  \"side\": \"CASH_IN\",\n  \"amount\": 100000\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/orders/cash",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "orders",
+                "cash"
+              ]
+            },
+            "description": "Ingreso de efectivo: queda FILLED en el instrumento 66 con price 1. amount es un entero en pesos."
+          }
+        },
+        {
+          "name": "Retirar saldo (CASH_OUT)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": 1,\n  \"side\": \"CASH_OUT\",\n  \"amount\": 5000\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/orders/cash",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "orders",
+                "cash"
+              ]
+            },
+            "description": "Egreso de efectivo. Si supera el saldo disponible se guarda REJECTED."
+          }
+        },
+        {
+          "name": "Compra MARKET por cantidad",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": 1,\n  \"instrumentId\": 47,\n  \"side\": \"BUY\",\n  \"type\": \"MARKET\",\n  \"size\": 5\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/orders",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "orders"
+              ]
+            },
+            "description": "Se ejecuta al último close y queda FILLED. Sin saldo suficiente se guarda REJECTED."
+          }
+        },
+        {
+          "name": "Compra MARKET por monto en pesos",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": 1,\n  \"instrumentId\": 47,\n  \"side\": \"BUY\",\n  \"type\": \"MARKET\",\n  \"amount\": 5000\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/orders",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "orders"
+              ]
+            },
+            "description": "Compra el máximo de acciones enteras que alcanza el monto (sin fracciones). Se envía size O amount, nunca ambos."
+          }
+        },
+        {
+          "name": "Venta MARKET",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": 1,\n  \"instrumentId\": 47,\n  \"side\": \"SELL\",\n  \"type\": \"MARKET\",\n  \"size\": 5\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/orders",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "orders"
+              ]
+            },
+            "description": "Si el usuario no tiene las acciones suficientes se guarda REJECTED."
+          }
+        },
+        {
+          "name": "Compra LIMIT",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": 1,\n  \"instrumentId\": 47,\n  \"side\": \"BUY\",\n  \"type\": \"LIMIT\",\n  \"size\": 5,\n  \"price\": 900.5\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/orders",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "orders"
+              ]
+            },
+            "description": "price es obligatorio en LIMIT y no se acepta en MARKET. Queda NEW al precio enviado."
+          }
+        },
+        {
+          "name": "Usuario inexistente (404)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": 99999,\n  \"instrumentId\": 47,\n  \"side\": \"BUY\",\n  \"type\": \"MARKET\",\n  \"size\": 1\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/orders",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "orders"
+              ]
+            },
+            "description": "Responde 404 con { error: USER_NOT_FOUND }."
+          }
+        },
+        {
+          "name": "Body inválido (400)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": 1,\n  \"instrumentId\": 47,\n  \"side\": \"BUY\",\n  \"type\": \"LIMIT\",\n  \"size\": 5\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/orders",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "orders"
+              ]
+            },
+            "description": "LIMIT sin price: responde 400 con { error: VALIDATION_FAILED, details: [{ field, code }] }."
+          }
+        }
+      ]
+    }
+  ]
+}
