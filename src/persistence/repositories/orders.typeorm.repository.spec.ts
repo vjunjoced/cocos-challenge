@@ -1,79 +1,24 @@
-import type { DataSource, Repository } from 'typeorm';
+import type { DataSource } from 'typeorm';
+import { Decimal } from 'decimal.js';
 import { NotFoundError } from '../../common/errors/not-found.error.js';
-import type { OrderEntity } from '../entities/order.entity.js';
 import { OrdersTypeOrmRepository } from './orders.typeorm.repository.js';
 
-describe('OrdersTypeOrmRepository', () => {
-  const datetime = new Date('2023-07-12T12:31:20');
-
-  it('trae las órdenes FILLED del usuario en orden cronológico', async () => {
-    const find = vi.fn().mockResolvedValue([]);
-    const repository = new OrdersTypeOrmRepository(
-      { find } as unknown as Repository<OrderEntity>,
-      {} as DataSource,
-    );
-
-    await repository.findFilledByUser(1);
-
-    expect(find).toHaveBeenCalledWith({
-      where: { userId: 1, status: 'FILLED' },
-      order: { datetime: 'ASC', id: 'ASC' },
-    });
-  });
-
-  it('convierte el precio numeric (string) a número', async () => {
-    const find = vi.fn().mockResolvedValue([
-      {
-        id: 2,
-        instrumentId: 47,
-        userId: 1,
-        size: 50,
-        price: '930.50',
-        type: 'MARKET',
-        side: 'BUY',
-        status: 'FILLED',
-        datetime,
-      },
-    ]);
-    const repository = new OrdersTypeOrmRepository(
-      { find } as unknown as Repository<OrderEntity>,
-      {} as DataSource,
-    );
-
-    await expect(repository.findFilledByUser(1)).resolves.toEqual([
-      {
-        id: 2,
-        instrumentId: 47,
-        userId: 1,
-        size: 50,
-        price: 930.5,
-        type: 'MARKET',
-        side: 'BUY',
-        status: 'FILLED',
-        datetime,
-      },
-    ]);
-  });
-});
-
 describe('OrdersTypeOrmRepository.withUserLock', () => {
-  const datetime = new Date('2023-07-12T12:31:20');
-  const entity = {
-    id: 9,
-    instrumentId: 47,
-    userId: 1,
-    size: 10,
-    price: '100.00',
-    type: 'MARKET',
-    side: 'BUY',
-    status: 'FILLED',
-    datetime,
-  };
-
-  const build = (user: object | null, history: object[] = []) => {
+  const build = (user: object | null = { id: 1 }) => {
+    const insertBuilder = {
+      insert: vi.fn().mockReturnThis(),
+      into: vi.fn().mockReturnThis(),
+      values: vi.fn().mockReturnThis(),
+      orIgnore: vi.fn().mockReturnThis(),
+      execute: vi.fn().mockResolvedValue(undefined),
+    };
     const manager = {
-      findOne: vi.fn().mockResolvedValue(user),
-      find: vi.fn().mockResolvedValue(history),
+      findOne: vi.fn((entity: { name: string }) =>
+        Promise.resolve(entity.name === 'UserEntity' ? user : { userId: 1 }),
+      ),
+      createQueryBuilder: vi.fn(() => insertBuilder),
+      upsert: vi.fn().mockResolvedValue(undefined),
+      delete: vi.fn().mockResolvedValue(undefined),
       create: vi.fn((_entity: unknown, values: object) => values),
       save: vi.fn((values: object) => Promise.resolve({ id: 9, ...values })),
     };
@@ -82,65 +27,31 @@ describe('OrdersTypeOrmRepository.withUserLock', () => {
         work(manager),
       ),
     };
-    const repository = new OrdersTypeOrmRepository(
-      {} as unknown as Repository<OrderEntity>,
-      dataSource as unknown as DataSource,
-    );
 
-    return { repository, manager, dataSource };
+    return {
+      repository: new OrdersTypeOrmRepository(
+        dataSource as unknown as DataSource,
+      ),
+      manager,
+      insertBuilder,
+      dataSource,
+    };
   };
 
-  const newOrder = {
-    instrumentId: 47,
-    userId: 1,
-    size: 10,
-    price: 100,
-    type: 'MARKET',
-    side: 'BUY',
-    status: 'FILLED',
-  } as const;
-
-  it('bloquea al usuario con FOR UPDATE dentro de una transacción', async () => {
-    const { repository, manager, dataSource } = build({ id: 1 });
+  it('abre una transacción, asegura la fila de efectivo y la bloquea con FOR UPDATE', async () => {
+    const { repository, manager, insertBuilder, dataSource } = build();
 
     await repository.withUserLock(1, () => Promise.resolve());
 
     expect(dataSource.transaction).toHaveBeenCalledTimes(1);
-    expect(manager.findOne).toHaveBeenCalledWith(expect.anything(), {
-      where: { id: 1 },
+    expect(insertBuilder.values).toHaveBeenCalledWith(
+      expect.objectContaining({ userId: 1, instrumentId: 66, quantity: '0' }),
+    );
+    expect(insertBuilder.orIgnore).toHaveBeenCalled();
+    expect(manager.findOne).toHaveBeenLastCalledWith(expect.anything(), {
+      where: { userId: 1, instrumentId: 66 },
       lock: { mode: 'pessimistic_write' },
     });
-  });
-
-  it('entrega el historial FILLED como modelos', async () => {
-    const { repository, manager } = build({ id: 1 }, [entity]);
-
-    const history = await repository.withUserLock(1, (scope) =>
-      scope.findFilledHistory(),
-    );
-
-    expect(manager.find).toHaveBeenCalledWith(expect.anything(), {
-      where: { userId: 1, status: 'FILLED' },
-      order: { datetime: 'ASC', id: 'ASC' },
-    });
-    expect(history).toEqual([
-      expect.objectContaining({ id: 9, price: 100, size: 10 }),
-    ]);
-  });
-
-  it('guarda la orden con el precio en string de 2 decimales y devuelve el modelo', async () => {
-    const { repository, manager } = build({ id: 1 });
-
-    const result = await repository.withUserLock(1, (scope) =>
-      scope.save({ ...newOrder, price: 930.5 }),
-    );
-
-    expect(manager.save).toHaveBeenCalledWith(
-      expect.objectContaining({ price: '930.50', status: 'FILLED' }),
-    );
-    expect(result).toEqual(
-      expect.objectContaining({ id: 9, price: 930.5, userId: 1 }),
-    );
   });
 
   it('lanza NotFoundError y no ejecuta el trabajo si el usuario no existe', async () => {
@@ -153,8 +64,88 @@ describe('OrdersTypeOrmRepository.withUserLock', () => {
     expect(work).not.toHaveBeenCalled();
   });
 
+  it('findPosition devuelve la posición como modelo, o null si no existe', async () => {
+    const { repository, manager } = build();
+    manager.findOne.mockImplementation((entity: { name: string }) =>
+      Promise.resolve(
+        entity.name === 'UserEntity'
+          ? { id: 1 }
+          : {
+              userId: 1,
+              instrumentId: 47,
+              quantity: '5.00',
+              cost: '500.000000',
+            },
+      ),
+    );
+
+    const found = await repository.withUserLock(1, (scope) =>
+      scope.findPosition(47),
+    );
+
+    expect(found?.quantity.toNumber()).toBe(5);
+    expect(found?.cost.toNumber()).toBe(500);
+  });
+
+  it('savePosition hace upsert por (userId, instrumentId) con escalas de columna', async () => {
+    const { repository, manager } = build();
+
+    await repository.withUserLock(1, (scope) =>
+      scope.savePosition({
+        instrumentId: 47,
+        quantity: new Decimal(3),
+        cost: new Decimal('925.85'),
+      }),
+    );
+
+    expect(manager.upsert).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        userId: 1,
+        instrumentId: 47,
+        quantity: '3.00',
+        cost: '925.850000',
+      }),
+      ['userId', 'instrumentId'],
+    );
+  });
+
+  it('deletePosition elimina la fila del usuario y el instrumento', async () => {
+    const { repository, manager } = build();
+
+    await repository.withUserLock(1, (scope) => scope.deletePosition(47));
+
+    expect(manager.delete).toHaveBeenCalledWith(expect.anything(), {
+      userId: 1,
+      instrumentId: 47,
+    });
+  });
+
+  it('saveOrder guarda la orden con el precio en string de 2 decimales y devuelve el modelo', async () => {
+    const { repository, manager } = build();
+
+    const result = await repository.withUserLock(1, (scope) =>
+      scope.saveOrder({
+        instrumentId: 47,
+        userId: 1,
+        size: 10,
+        price: 930.5,
+        type: 'MARKET',
+        side: 'BUY',
+        status: 'FILLED',
+      }),
+    );
+
+    expect(manager.save).toHaveBeenCalledWith(
+      expect.objectContaining({ price: '930.50', status: 'FILLED' }),
+    );
+    expect(result).toEqual(
+      expect.objectContaining({ id: 9, price: 930.5, userId: 1 }),
+    );
+  });
+
   it('propaga el error del trabajo sin guardar nada', async () => {
-    const { repository, manager } = build({ id: 1 });
+    const { repository, manager } = build();
 
     await expect(
       repository.withUserLock(1, () => Promise.reject(new Error('boom'))),

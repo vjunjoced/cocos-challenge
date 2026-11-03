@@ -1,8 +1,7 @@
+import { Decimal } from 'decimal.js';
 import type { Instrument } from '../../core/models/instrument.model.js';
-import type { AccountMovement } from '../../core/models/account-movement.model.js';
+import type { Position } from '../../core/models/position.model.js';
 import { calculatePortfolio as calculate } from './portfolio.calculator.js';
-
-const CASH_ID = 66;
 
 const instrument = (id: number): Instrument => ({
   id,
@@ -13,27 +12,29 @@ const instrument = (id: number): Instrument => ({
 
 const INSTRUMENTS = [1, 2, 9, 31, 47, 54].map(instrument);
 
-const calculatePortfolio = (
-  orders: AccountMovement[],
-  prices: Parameters<typeof calculate>[1],
-) => calculate(orders, prices, INSTRUMENTS);
-
-const cash = (side: 'CASH_IN' | 'CASH_OUT', size: number): AccountMovement => ({
-  instrumentId: CASH_ID,
-  side,
-  size,
-  price: 1,
+const position = (
+  instrumentId: number,
+  quantity: number | string,
+  cost: number | string = 0,
+): Position => ({
+  instrumentId,
+  quantity: new Decimal(quantity),
+  cost: new Decimal(cost),
 });
 
-const trade = (
-  side: 'BUY' | 'SELL',
-  instrumentId: number,
-  size: number,
-  price: number,
-): AccountMovement => ({ instrumentId, side, size, price });
+const price = (instrumentId: number, close: number, previousClose = close) => ({
+  instrumentId,
+  close,
+  previousClose,
+});
+
+const calculatePortfolio = (
+  positions: Position[],
+  prices: Parameters<typeof calculate>[1],
+) => calculate(positions, prices, INSTRUMENTS);
 
 describe('calculatePortfolio', () => {
-  it('devuelve todo en cero cuando no hay movimientos', () => {
+  it('devuelve todo en cero cuando no hay posiciones', () => {
     expect(calculatePortfolio([], [])).toEqual({
       totalValue: 0,
       availableCash: 0,
@@ -41,35 +42,24 @@ describe('calculatePortfolio', () => {
     });
   });
 
-  it('suma los ingresos y resta los egresos de efectivo', () => {
-    const result = calculatePortfolio(
-      [cash('CASH_IN', 1_000_000), cash('CASH_OUT', 100_000)],
-      [],
-    );
-
-    expect(result).toEqual({
-      totalValue: 900_000,
-      availableCash: 900_000,
+  it('con solo efectivo, el total son los pesos disponibles', () => {
+    expect(calculatePortfolio([position(66, '900000.50')], [])).toEqual({
+      totalValue: 900_000.5,
+      availableCash: 900_000.5,
       positions: [],
     });
   });
 
   it('calcula pesos y posiciones del usuario 1 del enunciado', () => {
-    const orders = [
-      cash('CASH_IN', 1_000_000),
-      trade('BUY', 47, 50, 930),
-      trade('SELL', 47, 10, 940),
-      cash('CASH_OUT', 100_000),
-      trade('BUY', 31, 20, 1540),
-      trade('BUY', 54, 500, 250),
+    const positions = [
+      position(66, 707_100),
+      position(47, 40, 37_200),
+      position(31, 20, 30_800),
+      position(54, 500, 125_000),
     ];
-    const prices = [
-      { instrumentId: 47, close: 950, previousClose: 950 },
-      { instrumentId: 31, close: 1540, previousClose: 1540 },
-      { instrumentId: 54, close: 270, previousClose: 270 },
-    ];
+    const prices = [price(47, 950), price(31, 1540), price(54, 270)];
 
-    const result = calculatePortfolio(orders, prices);
+    const result = calculatePortfolio(positions, prices);
 
     expect(result.availableCash).toBe(707_100);
     expect(result.totalValue).toBe(910_900);
@@ -95,10 +85,10 @@ describe('calculatePortfolio', () => {
     ]);
   });
 
-  it('calcula el rendimiento con el costo promedio de varias compras', () => {
+  it('calcula el rendimiento con el costo guardado de varias compras', () => {
     const result = calculatePortfolio(
-      [trade('BUY', 1, 10, 100), trade('BUY', 1, 5, 80)],
-      [{ instrumentId: 1, close: 120, previousClose: 120 }],
+      [position(1, 15, 1_400)],
+      [price(1, 120)],
     );
 
     expect(result.positions).toEqual([
@@ -110,59 +100,22 @@ describe('calculatePortfolio', () => {
     ]);
   });
 
-  it('mantiene el costo promedio al vender y lo recalcula al volver a comprar', () => {
-    const orders = [
-      cash('CASH_IN', 10_000),
-      trade('BUY', 1, 10, 100),
-      trade('BUY', 1, 5, 80),
-      trade('SELL', 1, 6, 120),
-      trade('BUY', 1, 15, 90),
-    ];
+  it('valúa a costo una posición sin precio de mercado', () => {
+    const result = calculatePortfolio([position(1, 10, 1_000)], []);
 
-    const afterSale = calculatePortfolio(orders.slice(0, 4), [
-      { instrumentId: 1, close: 120, previousClose: 120 },
-    ]);
-    const afterRebuy = calculatePortfolio(orders, [
-      { instrumentId: 1, close: 120, previousClose: 120 },
-    ]);
-
-    expect(afterSale.positions).toEqual([
+    expect(result.positions).toEqual([
       expect.objectContaining({
-        quantity: 9,
-        marketValue: 1080,
-        totalReturnPercentage: 28.57,
+        marketValue: 1000,
+        totalReturnPercentage: 0,
+        dailyReturnPercentage: 0,
       }),
     ]);
-    expect(afterRebuy.positions).toEqual([
-      expect.objectContaining({
-        quantity: 24,
-        marketValue: 2880,
-        totalReturnPercentage: 31.51,
-      }),
-    ]);
-    expect(afterRebuy.availableCash).toBe(7970);
-  });
-
-  it('no pierde precisión con decimales de punto flotante', () => {
-    const result = calculatePortfolio(
-      [
-        cash('CASH_IN', 100),
-        trade('BUY', 1, 3, 0.1),
-        trade('BUY', 1, 7, 0.2),
-        trade('SELL', 1, 10, 0.1),
-      ],
-      [],
-    );
-
-    expect(result.availableCash).toBe(99.3);
-    expect(result.totalValue).toBe(99.3);
-    expect(result.positions).toEqual([]);
   });
 
   it('calcula el cambio diario con close y previousClose', () => {
     const result = calculatePortfolio(
-      [trade('BUY', 47, 40, 930)],
-      [{ instrumentId: 47, close: 950, previousClose: 940 }],
+      [position(47, 40, 37_200)],
+      [price(47, 950, 940)],
     );
 
     expect(result.positions).toEqual([
@@ -170,42 +123,8 @@ describe('calculatePortfolio', () => {
     ]);
   });
 
-  it('quita la posición cuando se vende todo', () => {
-    const result = calculatePortfolio(
-      [
-        cash('CASH_IN', 1000),
-        trade('BUY', 1, 10, 50),
-        trade('SELL', 1, 10, 60),
-      ],
-      [{ instrumentId: 1, close: 60, previousClose: 60 }],
-    );
-
-    expect(result).toEqual({
-      totalValue: 1100,
-      availableCash: 1100,
-      positions: [],
-    });
-  });
-
-  it('valúa a costo una posición sin precio de mercado', () => {
-    const result = calculatePortfolio([trade('BUY', 1, 10, 100)], []);
-
-    expect(result.positions).toEqual([
-      expect.objectContaining({
-        marketValue: 1000,
-        totalReturnPercentage: 0,
-      }),
-    ]);
-  });
-
-  it('ignora una venta de un instrumento que no se tiene', () => {
-    const result = calculatePortfolio([trade('SELL', 1, 5, 100)], []);
-
-    expect(result.positions).toEqual([]);
-  });
-
   it('usa el id como ticker si el instrumento no se encuentra', () => {
-    const result = calculate([trade('BUY', 777, 1, 10)], [], []);
+    const result = calculate([position(777, 1, 10)], [], []);
 
     expect(result.positions).toEqual([
       expect.objectContaining({ ticker: '777', name: '' }),
@@ -214,13 +133,19 @@ describe('calculatePortfolio', () => {
 
   it('ordena las posiciones por ticker', () => {
     const result = calculatePortfolio(
-      [trade('BUY', 9, 1, 10), trade('BUY', 2, 1, 10)],
+      [position(9, 1, 10), position(2, 1, 10)],
       [],
     );
 
-    expect(result.positions.map((position) => position.ticker)).toEqual([
-      'T2',
-      'T9',
-    ]);
+    expect(result.positions.map((p) => p.ticker)).toEqual(['T2', 'T9']);
+  });
+
+  it('no incluye el efectivo en la lista de posiciones', () => {
+    const result = calculatePortfolio(
+      [position(66, 100), position(1, 1, 10)],
+      [],
+    );
+
+    expect(result.positions.map((p) => p.instrumentId)).toEqual([1]);
   });
 });

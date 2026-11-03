@@ -1,4 +1,6 @@
 import { Decimal } from 'decimal.js';
+import { toDecimalString } from '../../common/utils/to-decimal-string.js';
+import { ORDER_LIMITS } from '../../core/constants/order.constants.js';
 import type { OrderEntity } from '../entities/order.entity.js';
 import type { NewOrder } from '../../core/models/new-order.model.js';
 import type {
@@ -30,7 +32,10 @@ export function toOrderEntity(
     instrumentId: order.instrumentId,
     userId: order.userId,
     size: order.size,
-    price: new Decimal(order.price).toFixed(2),
+    price: toDecimalString(
+      new Decimal(order.price),
+      ORDER_LIMITS.MONEY_DECIMALS,
+    ),
     type: order.type,
     side: order.side,
     status: order.status,

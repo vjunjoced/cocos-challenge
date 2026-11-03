@@ -1,11 +1,12 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication } from '@nestjs/common';
+import { Decimal } from 'decimal.js';
 import request from 'supertest';
 import { App } from 'supertest/types.js';
 import { CommonModule } from '../src/common/common.module.js';
 import { INSTRUMENTS_REPOSITORY } from '../src/core/repositories/instruments.repository.js';
 import { MARKET_DATA_REPOSITORY } from '../src/core/repositories/market-data.repository.js';
-import { ORDERS_REPOSITORY } from '../src/core/repositories/orders.repository.js';
+import { POSITIONS_REPOSITORY } from '../src/core/repositories/positions.repository.js';
 import { USERS_REPOSITORY } from '../src/core/repositories/users.repository.js';
 import { PortfolioController } from '../src/portfolio/controllers/portfolio.controller.js';
 import { PortfolioService } from '../src/portfolio/services/portfolio.service.js';
@@ -13,31 +14,20 @@ import { PortfolioService } from '../src/portfolio/services/portfolio.service.js
 describe('Portfolio (e2e)', () => {
   let app: INestApplication<App>;
   const users = { exists: vi.fn() };
-  const orders = { findFilledByUser: vi.fn() };
+  const positions = { findByUser: vi.fn() };
   const marketData = { findLatestPrices: vi.fn() };
   const instruments = { findByIds: vi.fn() };
 
-  const order = (
-    side: string,
-    instrumentId: number,
-    size: number,
-    price: number,
-  ) => ({
-    id: 1,
+  const position = (instrumentId: number, quantity: number, cost = 0) => ({
     instrumentId,
-    userId: 1,
-    size,
-    price,
-    type: 'MARKET',
-    side,
-    status: 'FILLED',
-    datetime: new Date('2023-07-12T12:00:00'),
+    quantity: new Decimal(quantity),
+    cost: new Decimal(cost),
   });
 
   beforeEach(async () => {
     vi.stubEnv('DATABASE_URI', 'postgresql://user:pass@localhost:5432/db');
     users.exists.mockReset().mockResolvedValue(true);
-    orders.findFilledByUser.mockReset().mockResolvedValue([]);
+    positions.findByUser.mockReset().mockResolvedValue([]);
     marketData.findLatestPrices.mockReset().mockResolvedValue([]);
     instruments.findByIds.mockReset().mockResolvedValue([]);
 
@@ -47,7 +37,7 @@ describe('Portfolio (e2e)', () => {
       providers: [
         PortfolioService,
         { provide: USERS_REPOSITORY, useValue: users },
-        { provide: ORDERS_REPOSITORY, useValue: orders },
+        { provide: POSITIONS_REPOSITORY, useValue: positions },
         { provide: MARKET_DATA_REPOSITORY, useValue: marketData },
         { provide: INSTRUMENTS_REPOSITORY, useValue: instruments },
       ],
@@ -63,9 +53,9 @@ describe('Portfolio (e2e)', () => {
   });
 
   it('GET /portfolio/1 devuelve total, pesos disponibles y posiciones', async () => {
-    orders.findFilledByUser.mockResolvedValue([
-      order('CASH_IN', 66, 1000, 1),
-      order('BUY', 47, 5, 100),
+    positions.findByUser.mockResolvedValue([
+      position(66, 500),
+      position(47, 5, 500),
     ]);
     marketData.findLatestPrices.mockResolvedValue([
       { instrumentId: 47, close: 120, previousClose: 120 },
@@ -116,7 +106,7 @@ describe('Portfolio (e2e)', () => {
       .expect(404);
 
     expect(response.body).toEqual({ error: 'USER_NOT_FOUND' });
-    expect(orders.findFilledByUser).not.toHaveBeenCalled();
+    expect(positions.findByUser).not.toHaveBeenCalled();
   });
 
   it.each(['abc', '0', '-1', '1.5'])(

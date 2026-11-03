@@ -8,8 +8,17 @@ import {
   CASH_INSTRUMENT_TYPE,
   CASH_PRICE,
 } from '../../core/constants/instrument.constants.js';
-import { ORDER_TYPE } from '../../core/constants/order.constants.js';
+import {
+  ORDER_STATUS,
+  ORDER_TYPE,
+} from '../../core/constants/order.constants.js';
+import {
+  applyCashMovement,
+  applyTrade,
+} from '../../core/calculators/positions.calculator.js';
 import type { Order } from '../../core/models/order.model.js';
+import type { Position } from '../../core/models/position.model.js';
+import type { IUserOrdersScope } from '../../core/repositories/user-orders-scope.js';
 import {
   INSTRUMENTS_REPOSITORY,
   type IInstrumentsRepository,
@@ -26,6 +35,7 @@ import {
   USERS_REPOSITORY,
   type IUsersRepository,
 } from '../../core/repositories/users.repository.js';
+import { Decimal } from 'decimal.js';
 import { decideCashMovement } from '../calculators/cash-decision.calculator.js';
 import { decideOrder } from '../calculators/order-decision.calculator.js';
 import type { CashMovementRequest } from '../models/cash-movement-request.model.js';
@@ -49,16 +59,32 @@ export class OrdersService {
     const close = await this.resolveClose(request);
 
     return this.ordersRepository.withUserLock(request.userId, async (scope) => {
-      const history = await scope.findFilledHistory();
-      const decision = decideOrder(request, close, history);
-
-      return scope.save({
+      const cash = await this.findCash(scope);
+      const holding = await scope.findPosition(request.instrumentId);
+      const decision = decideOrder(request, close, {
+        cash: cash.quantity,
+        held: holding?.quantity.toNumber() ?? 0,
+      });
+      const order = await scope.saveOrder({
         userId: request.userId,
         instrumentId: request.instrumentId,
         side: request.side,
         type: request.type,
         ...decision,
       });
+
+      if (order.status === ORDER_STATUS.FILLED) {
+        const result = applyTrade(order, cash, holding);
+
+        await scope.savePosition(result.cash);
+        if (result.holding) {
+          await scope.savePosition(result.holding);
+        } else {
+          await scope.deletePosition(order.instrumentId);
+        }
+      }
+
+      return order;
     });
   }
 
@@ -66,10 +92,13 @@ export class OrdersService {
     await this.assertUserExists(request.userId);
 
     return this.ordersRepository.withUserLock(request.userId, async (scope) => {
-      const history = await scope.findFilledHistory();
-      const status = decideCashMovement(request.side, request.amount, history);
-
-      return scope.save({
+      const cash = await this.findCash(scope);
+      const status = decideCashMovement(
+        request.side,
+        request.amount,
+        cash.quantity,
+      );
+      const order = await scope.saveOrder({
         userId: request.userId,
         instrumentId: CASH_INSTRUMENT_ID,
         side: request.side,
@@ -78,7 +107,26 @@ export class OrdersService {
         price: CASH_PRICE,
         status,
       });
+
+      if (status === ORDER_STATUS.FILLED) {
+        await scope.savePosition(
+          applyCashMovement(request.side, request.amount, cash),
+        );
+      }
+
+      return order;
     });
+  }
+
+  /** La fila de efectivo no se elimina nunca; `withUserLock` garantiza que exista. */
+  private async findCash(scope: IUserOrdersScope): Promise<Position> {
+    return (
+      (await scope.findPosition(CASH_INSTRUMENT_ID)) ?? {
+        instrumentId: CASH_INSTRUMENT_ID,
+        quantity: new Decimal(0),
+        cost: new Decimal(0),
+      }
+    );
   }
 
   private async assertUserExists(userId: number): Promise<void> {

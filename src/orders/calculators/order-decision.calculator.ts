@@ -1,12 +1,10 @@
 import { Decimal } from 'decimal.js';
-import { calculateAvailableCash } from '../../core/calculators/cash.calculator.js';
-import { calculateHoldings } from '../../core/calculators/holdings.calculator.js';
 import {
   ORDER_SIDE,
   ORDER_STATUS,
   ORDER_TYPE,
 } from '../../core/constants/order.constants.js';
-import type { AccountMovement } from '../../core/models/account-movement.model.js';
+import type { OrderBalance } from '../models/order-balance.model.js';
 import type { OrderDecision } from '../models/order-decision.model.js';
 import type { OrderRequest } from '../models/order-request.model.js';
 
@@ -29,33 +27,31 @@ function canAfford(
   request: OrderRequest,
   size: number,
   price: Decimal,
-  movements: AccountMovement[],
+  balance: OrderBalance,
 ): boolean {
   if (request.side === ORDER_SIDE.BUY) {
-    return calculateAvailableCash(movements).gte(price.mul(size));
+    return balance.cash.gte(price.mul(size));
   }
 
-  const held = calculateHoldings(movements).get(request.instrumentId);
-
-  return (held?.quantity ?? 0) >= size;
+  return balance.held >= size;
 }
 
 /**
  * MARKET se ejecuta al último `close`; LIMIT al precio enviado. Una orden sin
  * fondos o sin acciones (o cuyo monto no alcanza para una acción) queda
- * REJECTED, con el precio al que se habría ejecutado. `movements` son las
- * órdenes FILLED del usuario, ordenadas cronológicamente.
+ * REJECTED, con el precio al que se habría ejecutado. `balance` es el saldo y
+ * la tenencia actuales del usuario en ese instrumento.
  */
 export function decideOrder(
   request: OrderRequest,
   close: number,
-  movements: AccountMovement[],
+  balance: OrderBalance,
 ): OrderDecision {
   const isMarket = request.type === ORDER_TYPE.MARKET;
   const price = new Decimal(isMarket ? close : (request.price ?? 0));
   const size = resolveSize(request, price);
 
-  if (size < 1 || !canAfford(request, size, price, movements)) {
+  if (size < 1 || !canAfford(request, size, price, balance)) {
     return { size, price: price.toNumber(), status: ORDER_STATUS.REJECTED };
   }
 

@@ -8,6 +8,10 @@
     {
       "key": "baseUrl",
       "value": "http://localhost:3000"
+    },
+    {
+      "key": "userId",
+      "value": "1"
     }
   ],
   "item": [
@@ -28,6 +32,55 @@
               ]
             },
             "description": "Devuelve el estado del servidor y su uptime en segundos."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Users",
+      "item": [
+        {
+          "name": "Crear usuario (guarda userId)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 y usuario creado', function () { pm.response.to.have.status(201); });",
+                  "const user = pm.response.json();",
+                  "pm.collectionVariables.set('userId', user.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{$randomEmail}}\",\n  \"accountNumber\": \"{{$randomInt}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/users",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users"
+              ]
+            },
+            "description": "Crea un usuario y su fila de efectivo en cero. El script de test guarda el id devuelto en la variable de colección userId, que usan el resto de los requests. Después se puede agregar saldo con POST /orders/cash."
           }
         }
       ]
@@ -100,17 +153,17 @@
       "name": "Portfolio",
       "item": [
         {
-          "name": "Portfolio del usuario 1",
+          "name": "Portfolio del usuario actual",
           "request": {
             "method": "GET",
             "url": {
-              "raw": "{{baseUrl}}/portfolio/1",
+              "raw": "{{baseUrl}}/portfolio/{{userId}}",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
                 "portfolio",
-                "1"
+                "{{userId}}"
               ]
             },
             "description": "Valor total de la cuenta, pesos disponibles y posiciones (cantidad, valor de mercado y rendimiento total %). Solo cuentan las órdenes FILLED; el rendimiento usa costo promedio móvil."
@@ -165,7 +218,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"userId\": 1,\n  \"side\": \"CASH_IN\",\n  \"amount\": 100000\n}",
+              "raw": "{\n  \"userId\": {{userId}},\n  \"side\": \"CASH_IN\",\n  \"amount\": 100000\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -197,7 +250,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"userId\": 1,\n  \"side\": \"CASH_OUT\",\n  \"amount\": 5000\n}",
+              "raw": "{\n  \"userId\": {{userId}},\n  \"side\": \"CASH_OUT\",\n  \"amount\": 5000\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -229,7 +282,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"userId\": 1,\n  \"instrumentId\": 47,\n  \"side\": \"BUY\",\n  \"type\": \"MARKET\",\n  \"size\": 5\n}",
+              "raw": "{\n  \"userId\": {{userId}},\n  \"instrumentId\": 47,\n  \"side\": \"BUY\",\n  \"type\": \"MARKET\",\n  \"size\": 5\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -260,7 +313,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"userId\": 1,\n  \"instrumentId\": 47,\n  \"side\": \"BUY\",\n  \"type\": \"MARKET\",\n  \"amount\": 5000\n}",
+              "raw": "{\n  \"userId\": {{userId}},\n  \"instrumentId\": 47,\n  \"side\": \"BUY\",\n  \"type\": \"MARKET\",\n  \"amount\": 5000\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -276,7 +329,7 @@
                 "orders"
               ]
             },
-            "description": "Compra el máximo de acciones enteras que alcanza el monto (sin fracciones). Se envía size O amount, nunca ambos."
+            "description": "Compra el máximo de acciones enteras que alcanza el monto (sin fracciones). Se envía size o amount, nunca ambos."
           }
         },
         {
@@ -291,7 +344,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"userId\": 1,\n  \"instrumentId\": 47,\n  \"side\": \"SELL\",\n  \"type\": \"MARKET\",\n  \"size\": 5\n}",
+              "raw": "{\n  \"userId\": {{userId}},\n  \"instrumentId\": 47,\n  \"side\": \"SELL\",\n  \"type\": \"MARKET\",\n  \"size\": 5\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -322,7 +375,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"userId\": 1,\n  \"instrumentId\": 47,\n  \"side\": \"BUY\",\n  \"type\": \"LIMIT\",\n  \"size\": 5,\n  \"price\": 900.5\n}",
+              "raw": "{\n  \"userId\": {{userId}},\n  \"instrumentId\": 47,\n  \"side\": \"BUY\",\n  \"type\": \"LIMIT\",\n  \"size\": 5,\n  \"price\": 900.5\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -384,7 +437,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"userId\": 1,\n  \"instrumentId\": 47,\n  \"side\": \"BUY\",\n  \"type\": \"LIMIT\",\n  \"size\": 5\n}",
+              "raw": "{\n  \"userId\": {{userId}},\n  \"instrumentId\": 47,\n  \"side\": \"BUY\",\n  \"type\": \"LIMIT\",\n  \"size\": 5\n}",
               "options": {
                 "raw": {
                   "language": "json"

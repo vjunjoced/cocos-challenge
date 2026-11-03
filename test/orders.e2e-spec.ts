@@ -3,7 +3,9 @@ import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { App } from 'supertest/types.js';
 import { CommonModule } from '../src/common/common.module.js';
+import { Decimal } from 'decimal.js';
 import type { Order } from '../src/core/models/order.model.js';
+import type { Position } from '../src/core/models/position.model.js';
 import { INSTRUMENTS_REPOSITORY } from '../src/core/repositories/instruments.repository.js';
 import { MARKET_DATA_REPOSITORY } from '../src/core/repositories/market-data.repository.js';
 import { ORDERS_REPOSITORY } from '../src/core/repositories/orders.repository.js';
@@ -15,24 +17,28 @@ import { OrdersService } from '../src/orders/services/orders.service.js';
 describe('Orders (e2e)', () => {
   let app: INestApplication<App>;
   let ledger: Order[];
+  let positions: Map<number, Position>;
   const users = { exists: vi.fn() };
   const marketData = { findLatestPrices: vi.fn() };
   const instruments = { findByIds: vi.fn() };
 
   const orders = {
-    findFilledByUser: vi.fn(),
     withUserLock: (
-      userId: number,
+      _userId: number,
       work: (scope: IUserOrdersScope) => Promise<unknown>,
     ) =>
       work({
-        findFilledHistory: () =>
-          Promise.resolve(
-            ledger.filter(
-              (order) => order.userId === userId && order.status === 'FILLED',
-            ),
-          ),
-        save: (order) => {
+        findPosition: (instrumentId) =>
+          Promise.resolve(positions.get(instrumentId) ?? null),
+        savePosition: (position) => {
+          positions.set(position.instrumentId, position);
+          return Promise.resolve();
+        },
+        deletePosition: (instrumentId) => {
+          positions.delete(instrumentId);
+          return Promise.resolve();
+        },
+        saveOrder: (order) => {
           const saved = {
             ...order,
             id: ledger.length + 1,
@@ -43,6 +49,10 @@ describe('Orders (e2e)', () => {
         },
       }),
   };
+
+  const cashBalance = () => positions.get(66)?.quantity.toNumber();
+  const shares = (instrumentId: number) =>
+    positions.get(instrumentId)?.quantity.toNumber();
 
   const cashIn = (amount: number) =>
     request(app.getHttpServer())
@@ -57,6 +67,12 @@ describe('Orders (e2e)', () => {
   beforeEach(async () => {
     vi.stubEnv('DATABASE_URI', 'postgresql://user:pass@localhost:5432/db');
     ledger = [];
+    positions = new Map<number, Position>([
+      [
+        66,
+        { instrumentId: 66, quantity: new Decimal(0), cost: new Decimal(0) },
+      ],
+    ]);
     users.exists.mockReset().mockResolvedValue(true);
     marketData.findLatestPrices
       .mockReset()
@@ -101,6 +117,7 @@ describe('Orders (e2e)', () => {
         status: 'FILLED',
       }),
     );
+    expect(cashBalance()).toBe(5_000);
   });
 
   it('POST /orders/cash rechaza un retiro mayor al saldo y lo registra', async () => {
@@ -113,6 +130,7 @@ describe('Orders (e2e)', () => {
 
     expect(response.body.status).toBe('REJECTED');
     expect(ledger).toHaveLength(2);
+    expect(cashBalance()).toBe(100);
   });
 
   it('una MARKET de compra con saldo se ejecuta al último close', async () => {
@@ -133,6 +151,8 @@ describe('Orders (e2e)', () => {
         status: 'FILLED',
       }),
     );
+    expect(cashBalance()).toBe(500);
+    expect(shares(47)).toBe(5);
   });
 
   it('una LIMIT queda NEW al precio enviado', async () => {
@@ -148,6 +168,8 @@ describe('Orders (e2e)', () => {
     expect(response.body).toEqual(
       expect.objectContaining({ type: 'LIMIT', price: 90.5, status: 'NEW' }),
     );
+    expect(cashBalance()).toBe(1_000);
+    expect(shares(47)).toBeUndefined();
   });
 
   it('calcula las acciones máximas a partir de un monto en pesos', async () => {
@@ -202,6 +224,8 @@ describe('Orders (e2e)', () => {
 
     expect(sold.body.status).toBe('FILLED');
     expect(oversold.body.status).toBe('REJECTED');
+    expect(shares(47)).toBeUndefined();
+    expect(cashBalance()).toBe(1_000);
   });
 
   it('el saldo gastado en una compra ya no está disponible para la siguiente', async () => {

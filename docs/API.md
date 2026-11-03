@@ -5,6 +5,7 @@ Referencia de los endpoints. Las decisiones de diseño y sus motivos están en e
 | Método | Ruta | Descripción |
 |---|---|---|
 | GET | [`/health`](#get-health) | Estado del servidor |
+| POST | [`/users`](#post-users) | Crea un usuario y su fila de efectivo |
 | GET | [`/instruments`](#get-instruments) | Busca instrumentos por ticker o nombre |
 | GET | [`/portfolio/:userId`](#get-portfoliouserid) | Cuenta del usuario y sus posiciones |
 | POST | [`/orders`](#post-orders) | Envía una orden de compra o venta |
@@ -105,6 +106,31 @@ Un usuario sin movimientos devuelve `0`, `0` y `positions` vacío. Las posicione
 
 **Errores:** `404 USER_NOT_FOUND`, `400 VALIDATION_FAILED` (id inválido).
 
+## POST /users
+
+Crea un usuario y su fila de efectivo en cero, en una sola transacción.
+
+**Cuerpo**
+
+| Campo | Obligatorio | Valores | Descripción |
+|---|---|---|---|
+| `email` | sí | email válido, máximo 255 caracteres | Correo del usuario |
+| `accountNumber` | sí | texto no vacío, máximo 255 caracteres | Número de cuenta |
+
+El `id` no se envía: lo asigna la base. Cualquier campo no declarado se rechaza con `NOT_ALLOWED`.
+
+```json
+{ "email": "nuevo@cocos.com", "accountNumber": "20001" }
+```
+
+**Respuesta `201`**
+
+```json
+{ "id": 5, "email": "nuevo@cocos.com", "accountNumber": "20001" }
+```
+
+**Errores:** `400 VALIDATION_FAILED`.
+
 ## POST /orders
 
 Envía una orden de compra o venta. La orden siempre se guarda, también si es rechazada.
@@ -170,5 +196,7 @@ Ingreso (`CASH_IN`) o egreso (`CASH_OUT`) de efectivo. Sirve para dar saldo a un
 ```
 
 **Respuesta `201`:** la orden guardada, con el mismo formato que `POST /orders`. Un egreso mayor al saldo se guarda `REJECTED`.
+
+Si el usuario es anterior a la tabla de posiciones y no tiene fila de efectivo, se crea al operar.
 
 **Errores:** `400 VALIDATION_FAILED`, `404 USER_NOT_FOUND`.

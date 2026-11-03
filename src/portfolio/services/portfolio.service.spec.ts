@@ -1,30 +1,24 @@
+import { Decimal } from 'decimal.js';
 import { NotFoundError } from '../../common/errors/not-found.error.js';
 import type { LatestPrice } from '../../core/models/latest-price.model.js';
-import type { Order } from '../../core/models/order.model.js';
+import type { Position } from '../../core/models/position.model.js';
 import { PortfolioService } from './portfolio.service.js';
 
 describe('PortfolioService', () => {
-  const order = (
-    side: Order['side'],
+  const position = (
     instrumentId: number,
-    size: number,
-    price: number,
-  ): Order => ({
-    id: 1,
+    quantity: number,
+    cost = 0,
+  ): Position => ({
     instrumentId,
-    userId: 1,
-    size,
-    price,
-    type: 'MARKET',
-    side,
-    status: 'FILLED',
-    datetime: new Date('2023-07-12T12:00:00'),
+    quantity: new Decimal(quantity),
+    cost: new Decimal(cost),
   });
 
   const build = (
     overrides: {
       exists?: boolean;
-      orders?: Order[];
+      positions?: Position[];
       prices?: LatestPrice[];
       instruments?: {
         id: number;
@@ -36,9 +30,10 @@ describe('PortfolioService', () => {
   ) => {
     const users = {
       exists: vi.fn().mockResolvedValue(overrides.exists ?? true),
+      createWithPositions: vi.fn(),
     };
-    const orders = {
-      findFilledByUser: vi.fn().mockResolvedValue(overrides.orders ?? []),
+    const positions = {
+      findByUser: vi.fn().mockResolvedValue(overrides.positions ?? []),
     };
     const marketData = {
       findLatestPrices: vi.fn().mockResolvedValue(overrides.prices ?? []),
@@ -50,21 +45,21 @@ describe('PortfolioService', () => {
 
     return {
       users,
-      orders,
+      positions,
       marketData,
       instruments,
-      service: new PortfolioService(users, orders, marketData, instruments),
+      service: new PortfolioService(users, positions, marketData, instruments),
     };
   };
 
   it('lanza NotFoundError cuando el usuario no existe', async () => {
-    const { orders, service } = build({ exists: false });
+    const { positions, service } = build({ exists: false });
 
     await expect(service.getPortfolio(7)).rejects.toThrow(NotFoundError);
-    expect(orders.findFilledByUser).not.toHaveBeenCalled();
+    expect(positions.findByUser).not.toHaveBeenCalled();
   });
 
-  it('devuelve el portfolio vacío cuando el usuario no tiene órdenes', async () => {
+  it('devuelve el portfolio vacío cuando el usuario no tiene posiciones', async () => {
     const { service } = build();
 
     await expect(service.getPortfolio(1)).resolves.toEqual({
@@ -74,26 +69,25 @@ describe('PortfolioService', () => {
     });
   });
 
-  it('consulta precios e instrumentos solo de los operados, sin repetidos', async () => {
-    const { orders, marketData, instruments, service } = build({
-      orders: [
-        order('CASH_IN', 66, 1000, 1),
-        order('BUY', 47, 5, 100),
-        order('BUY', 47, 5, 90),
-        order('SELL', 31, 1, 10),
+  it('consulta precios e instrumentos solo de los activos, sin el efectivo', async () => {
+    const { positions, marketData, instruments, service } = build({
+      positions: [
+        position(66, 1000),
+        position(47, 5, 500),
+        position(31, 1, 10),
       ],
     });
 
     await service.getPortfolio(1);
 
-    expect(orders.findFilledByUser).toHaveBeenCalledWith(1);
+    expect(positions.findByUser).toHaveBeenCalledWith(1);
     expect(marketData.findLatestPrices).toHaveBeenCalledWith([47, 31]);
     expect(instruments.findByIds).toHaveBeenCalledWith([47, 31]);
   });
 
-  it('calcula el portfolio con las órdenes, precios e instrumentos', async () => {
+  it('calcula el portfolio con las posiciones, precios e instrumentos', async () => {
     const { service } = build({
-      orders: [order('CASH_IN', 66, 1000, 1), order('BUY', 47, 5, 100)],
+      positions: [position(66, 500), position(47, 5, 500)],
       prices: [{ instrumentId: 47, close: 120, previousClose: 120 }],
       instruments: [
         { id: 47, ticker: 'PAMP', name: 'Pampa Holding', type: 'ACCIONES' },
